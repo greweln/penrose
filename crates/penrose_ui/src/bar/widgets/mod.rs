@@ -13,12 +13,8 @@ use std::{
 };
 
 pub mod debug;
-pub mod sys;
-
-mod simple;
 mod workspaces;
 
-pub use simple::{ActiveWindowName, CurrentLayout, RootWindowName};
 pub use workspaces::{DefaultUi, FocusState, Workspaces, WorkspacesUi, WorkspacesWidget, WsMeta};
 
 /// A status bar widget that can be rendered using a [Context]
@@ -112,6 +108,13 @@ impl Text {
             extent: None,
             require_draw: true,
         }
+    }
+    /// Set the style
+    pub fn set_style(&mut self, style: TextStyle) {
+        self.fg = style.fg;
+        self.bg = style.bg;
+        self.padding = style.padding;
+        self.require_draw = true;
     }
 
     /// Borrow the current contents of the widget.
@@ -320,6 +323,7 @@ pub struct IntervalText {
     inner: Arc<Mutex<Text>>,
     interval: Duration,
     get_text: Option<Box<dyn Fn() -> Option<String> + Send + 'static>>,
+    get_style: Option<Box<dyn Fn() -> TextStyle + Send + 'static>>,
 }
 
 impl fmt::Debug for IntervalText {
@@ -335,8 +339,8 @@ impl IntervalText {
     /// Construct a new [`IntervalText`] using the specified styling and a function for
     /// generating the widget contents. The function for updating the widget contents
     /// will be run in its own thread on the interval provided.
-    pub fn new<F>(
-        style: TextStyle,
+    pub fn new<F, G>(
+        get_style: G,
         get_text: F,
         interval: Duration,
         is_greedy: bool,
@@ -344,13 +348,20 @@ impl IntervalText {
     ) -> Self
     where
         F: Fn() -> Option<String> + Send + 'static,
+        G: Fn() -> TextStyle + Send + 'static,
     {
-        let inner = Arc::new(Mutex::new(Text::new("", style, is_greedy, right_justified)));
+        let inner = Arc::new(Mutex::new(Text::new(
+            "",
+            get_style(),
+            is_greedy,
+            right_justified,
+        )));
 
         Self {
             inner,
             interval,
             get_text: Some(Box::new(get_text)),
+            get_style: Some(Box::new(get_style)),
         }
     }
 
@@ -383,6 +394,7 @@ impl<X: XConn> Widget<X> for IntervalText {
         Some(UpdateSchedule::new(
             self.interval,
             self.get_text.take().unwrap(),
+            self.get_style.take().unwrap(),
             self.inner.clone(),
         ))
     }

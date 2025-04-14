@@ -1,5 +1,5 @@
 //! Utilities for running scheduled updates to widgets
-use crate::bar::widgets::Text;
+use crate::{bar::widgets::Text, TextStyle};
 use penrose::util::spawn_with_args;
 use std::{
     cmp::max,
@@ -21,6 +21,7 @@ pub struct UpdateSchedule {
     pub(crate) next: Instant,
     pub(crate) interval: Duration,
     pub(crate) get_text: Box<dyn Fn() -> Option<String> + Send + 'static>,
+    pub(crate) get_style: Box<dyn Fn() -> TextStyle + Send + 'static>,
     pub(crate) txt: Arc<Mutex<Text>>,
 }
 
@@ -43,6 +44,7 @@ impl UpdateSchedule {
     pub fn new(
         interval: Duration,
         get_text: Box<dyn Fn() -> Option<String> + Send + 'static>,
+        get_style: Box<dyn Fn() -> TextStyle + Send + 'static>,
         txt: Arc<Mutex<Text>>,
     ) -> Self {
         if interval < MIN_DURATION {
@@ -53,6 +55,7 @@ impl UpdateSchedule {
             next: Instant::now(),
             interval,
             get_text,
+            get_style,
             txt,
         }
     }
@@ -81,8 +84,19 @@ impl UpdateSchedule {
         self.next = max(next, now);
         trace!(next = ?self.next, "next update at");
     }
-}
 
+    fn update_style(&mut self) {
+        trace!("running UpdateSchedule get_style");
+        let style = (self.get_style)(); // new
+        trace!(?style, "output from running get_style");
+
+        let mut t = match self.txt.lock() {
+            Ok(inner) => inner,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        t.set_style(style); // new
+    }
+}
 /// Run the polling thread for a set of [UpdateSchedule]s and update their contents on
 /// their requested intervals.
 pub(crate) fn run_update_schedules(mut schedules: Vec<UpdateSchedule>) {
@@ -90,6 +104,7 @@ pub(crate) fn run_update_schedules(mut schedules: Vec<UpdateSchedule>) {
         trace!("running UpdateSchedule updates for all pending widgets");
         while schedules[0].next < Instant::now() {
             schedules[0].update_text();
+            schedules[0].update_style();
             schedules.sort_by(|a, b| a.next.cmp(&b.next));
         }
 

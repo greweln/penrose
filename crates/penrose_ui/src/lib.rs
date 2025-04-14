@@ -44,8 +44,6 @@ pub mod layout_viewer;
 pub use crate::core::{Context, Draw, TextStyle};
 pub use bar::{Position, StatusBar};
 
-use bar::widgets::{ActiveWindowName, CurrentLayout, RootWindowName, Workspaces};
-
 /// Error variants from penrose_ui library.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -107,40 +105,16 @@ pub fn status_bar<X: XConn>(
     font: &str,
     point_size: u8,
     style: TextStyle,
-    highlight: impl Into<Color>,
-    empty_ws: impl Into<Color>,
+    _highlight: impl Into<Color>,
+    _empty_ws: impl Into<Color>,
     position: Position,
 ) -> Result<StatusBar<X>> {
-    let max_active_window_chars = 80;
-    let highlight = highlight.into();
-
     StatusBar::try_new(
         position,
         height,
         style.bg.unwrap_or_else(|| 0x000000.into()),
         font,
         point_size,
-        vec![
-            Box::new(Workspaces::new(style, highlight, empty_ws)),
-            Box::new(CurrentLayout::new(style)),
-            Box::new(ActiveWindowName::new(
-                max_active_window_chars,
-                TextStyle {
-                    bg: Some(highlight),
-                    padding: (6, 4),
-                    ..style
-                },
-                true,
-                false,
-            )),
-            Box::new(RootWindowName::new(
-                TextStyle {
-                    padding: (4, 2),
-                    ..style
-                },
-                false,
-                true,
-            )),
-        ],
+        vec![],
     )
 }
