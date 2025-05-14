@@ -124,7 +124,9 @@ where
 
     /// Set focus to the [Workspace] with the specified tag.
     ///
-    /// If there is no matching workspace then the [StackSet] is unmodified.
+    /// If there is no matching workspace or the provided tag for an invisible
+    /// workspace then the [StackSet] is unmodified. (See
+    /// [add_invisible_workspace](Self::add_invisible_workspace) for details).
     /// If the [Workspace] is currently visible then focus moves to the screen
     /// containing that workspace, otherwise the workspace replaces whatever
     /// was on the active screen.
@@ -134,8 +136,8 @@ where
     pub fn focus_tag(&mut self, tag: impl AsRef<str>) {
         let tag = tag.as_ref();
 
-        if self.screens.focus.workspace.tag == tag {
-            return; // already focused
+        if self.screens.focus.workspace.tag == tag || self.invisible_tags.iter().any(|t| t == tag) {
+            return;
         }
 
         // If the tag is visible on another screen, focus moves to that screen
@@ -218,18 +220,24 @@ where
     /// Focus the given client and set its [Workspace] as current (see
     /// focus_tag).
     ///
-    /// If the client is unknown then this is a no-op.
+    /// If the client is unknown or on an invisible tag then then this is a no-op.
     pub fn focus_client(&mut self, client: &C) {
         if self.current_client() == Some(client) {
             return; // already focused
         }
 
         let tag = match self.tag_for_client(client) {
-            Some(tag) => tag.to_string(),
+            Some(tag) if self.invisible_tags.iter().any(|t| t == tag) => return,
             None => return, // unknown client
+            Some(tag) => tag.to_string(),
         };
 
         self.focus_tag(&tag);
+        debug_assert_eq!(
+            self.current_tag(),
+            tag,
+            "attempt to focus unknown or invisible tag for client"
+        );
 
         while self.current_client() != Some(client) {
             self.focus_up()
@@ -1062,6 +1070,44 @@ pub mod tests {
 
         assert_eq!(s.screens.focus.workspace.tag, target);
         assert_eq!(visible_tags, vis);
+    }
+
+    #[test]
+    fn invisible_tags_cant_be_focused() {
+        let mut s = test_stack_set(5, 2);
+
+        let visible_tags: Vec<&str> = s.screens().map(|s| s.workspace.tag.as_ref()).collect();
+        assert_eq!(s.screens.focus.workspace.tag, "1");
+        assert_eq!(visible_tags, &["1", "2"]);
+
+        s.add_invisible_workspace("invisible").unwrap();
+        s.focus_tag("invisible");
+
+        let visible_tags: Vec<&str> = s.screens().map(|s| s.workspace.tag.as_ref()).collect();
+        assert_eq!(s.screens.focus.workspace.tag, "1");
+        assert_eq!(visible_tags, &["1", "2"]);
+    }
+
+    #[test]
+    fn clients_on_invisible_workspaces_cant_be_focused() {
+        let mut s = test_stack_set_with_stacks(
+            vec![
+                Some(stack!([1, 2], 3, [4, 5])),
+                Some(stack!(6, [7, 8])),
+                Some(stack!([9], 10)),
+            ],
+            1,
+        );
+        s.add_invisible_workspace("invisible").unwrap();
+
+        assert_eq!(s.current_client(), Some(&3)); // focus of the stack on screen 0
+
+        s.focus_client(&7);
+        assert_eq!(s.current_client(), Some(&7));
+
+        s.move_client_to_tag(&1, "invisible");
+        s.focus_client(&1);
+        assert_eq!(s.current_client(), Some(&7));
     }
 
     #[test_case(0, Some("1"), Some("3"); "initial focus")]
